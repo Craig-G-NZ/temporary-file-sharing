@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Secure File Share{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- Hero Section -->
+        <div class="text-center mb-5">
+            <h1 class="display-4 mb-4">
+                <i class="fas fa-shield-alt text-primary"></i>
+                Secure File Share
+            </h1>
+            <p class="lead">
+                Share files securely with automatic expiration and email notifications
+            </p>
+        </div>
+
+        <!-- Configuration Status -->
+        {% if not is_configured %}
+        <div class="alert alert-warning">
+            <h5><i class="fas fa-exclamation-triangle"></i> Configuration Required</h5>
+            <p>The system needs to be configured before you can send email notifications.</p>
+            <a href="{{ url_for('auth.login') }}" class="btn btn-warning">
+                Configure System <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- Features -->
+        <div class="row mb-5">
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <i class="fas fa-upload fa-3x text-primary mb-3"></i>
+                        <h5>Easy Upload</h5>
+                        <p class="text-muted">
+                            Upload up to {{ config.max_file_size_gb }}GB per file,
+                            {{ config.max_total_upload_gb }}GB total per upload
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <i class="fas fa-clock fa-3x text-success mb-3"></i>
+                        <h5>Auto Expiration</h5>
+                        <p class="text-muted">
+                            Files automatically expire after {{ config.file_retention_hours }} hours
+                            for security
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <i class="fas fa-envelope fa-3x text-info mb-3"></i>
+                        <h5>Email Notifications</h5>
+                        <p class="text-muted">
+                            {% if config.require_email %}
+                            Email required - recipients get automatic notifications
+                            {% else %}
+                            Optional email notifications for recipients
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Button -->
+        <div class="text-center">
+            <a href="{{ url_for('admin.upload') }}" class="btn btn-primary btn-lg">
+                <i class="fas fa-upload"></i> Start Sharing Files
+            </a>
+        </div>
+
+        <!-- System Info -->
+        <div class="mt-5 text-center">
+            <small class="text-muted">
+                Max {{ config.max_files_per_upload }} files per upload • 
+                Files expire after {{ config.file_retention_hours }} hours •
+                {% if config.auto_cleanup %}Auto cleanup enabled{% else %}Manual cleanup{% endif %}
+            </small>
+        </div>
+    </div>
+</div>
+{% endblock %}

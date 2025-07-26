@@ -1,0 +1,11 @@
+Flask
+Flask-Login
+Flask-WTF
+WTForms
+requests
+python-dotenv
+gunicorn
+mailjet_rest
+pytz
+bcrypt
+cryptography

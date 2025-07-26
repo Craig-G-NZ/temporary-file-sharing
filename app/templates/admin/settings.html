@@ -1,0 +1,314 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Settings - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2>Application Settings</h2>
+            
+            <!-- Email Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-envelope"></i> Email Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.update_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="email_settings" value="1">
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="mailjet_api_key" class="form-label">Mailjet API Key</label>
+                                    <input type="text" class="form-control" id="mailjet_api_key" 
+                                           name="mailjet_api_key" value="{{ email_config.api_key }}">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="mailjet_api_secret" class="form-label">Mailjet API Secret</label>
+                                    <input type="password" class="form-control" id="mailjet_api_secret" 
+                                           name="mailjet_api_secret" value="{{ email_config.api_secret }}">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="mailjet_from_email" class="form-label">From Email</label>
+                                    <input type="email" class="form-control" id="mailjet_from_email" 
+                                           name="mailjet_from_email" value="{{ email_config.from_email }}">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="mailjet_from_name" class="form-label">From Name</label>
+                                    <input type="text" class="form-control" id="mailjet_from_name" 
+                                           name="mailjet_from_name" value="{{ email_config.from_name }}">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Save Email Settings
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="test-email-btn">
+                                <i class="fas fa-paper-plane"></i> Test Email
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Application Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-cog"></i> Application Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.update_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="app_settings" value="1">
+                        
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="file_retention_hours" class="form-label">File Retention (Hours)</label>
+                                    <input type="number" class="form-control" id="file_retention_hours" 
+                                           name="file_retention_hours" value="{{ app_config.file_retention_hours }}" min="1">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="max_file_size_gb" class="form-label">Max File Size (GB)</label>
+                                    <input type="number" class="form-control" id="max_file_size_gb" 
+                                           name="max_file_size_gb" value="{{ app_config.max_file_size_gb }}" min="1">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="max_files_per_upload" class="form-label">Max Files Per Upload</label>
+                                    <input type="number" class="form-control" id="max_files_per_upload" 
+                                           name="max_files_per_upload" value="{{ app_config.max_files_per_upload }}" min="1">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="require_email" 
+                                           name="require_email" {{ 'checked' if app_config.require_email }}>
+                                    <label class="form-check-label" for="require_email">
+                                        Require Email for File Sharing
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="auto_cleanup" 
+                                           name="auto_cleanup" {{ 'checked' if app_config.auto_cleanup }}>
+                                    <label class="form-check-label" for="auto_cleanup">
+                                        Automatic Cleanup of Expired Files
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="cleanup_interval_minutes" class="form-label">Cleanup Interval (Minutes)</label>
+                                    <input type="number" class="form-control" id="cleanup_interval_minutes" 
+                                           name="cleanup_interval_minutes" value="{{ app_config.cleanup_interval_minutes }}" 
+                                           min="5" max="1440">
+                                    <div class="form-text">How often to check for expired files (5-1440 minutes)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Manual Cleanup</label>
+                                    <br>
+                                    <button type="button" class="btn btn-warning" id="manual-cleanup-btn">
+                                        <i class="fas fa-broom"></i> Clean Up Expired Files Now
+                                    </button>
+                                    <div class="form-text">Manually trigger cleanup of expired files</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save App Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Timezone Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-clock"></i> Timezone Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.update_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="timezone_settings" value="1">
+                        
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="mb-3">
+                                    <label for="display_timezone" class="form-label">Display Timezone</label>
+                                    <select class="form-control" id="display_timezone" name="display_timezone">
+                                        {% for tz_key, tz_name in timezone_config.available_timezones.items() %}
+                                        <option value="{{ tz_key }}" 
+                                                {% if tz_key == timezone_config.display_timezone %}selected{% endif %}>
+                                            {{ tz_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="form-text text-muted">
+                                        This timezone will be used to display all dates and times in the interface.
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label class="form-label">Current Time</label>
+                                    <div class="form-control-plaintext">
+                                        <span id="current-time-display">Loading...</span>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Current time in selected timezone
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Timezone Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- API Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-key"></i> API Settings</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.update_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="api_settings" value="1">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">API Key</label>
+                                <div class="input-group mb-3">
+                                    <input type="text" readonly class="form-control" value="{{ app_config.api_key }}">
+                                    <button class="btn btn-outline-secondary" type="submit" name="regenerate_api_key" value="1">
+                                        <i class="fas fa-sync-alt"></i> Regenerate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="notification_email" class="form-label">Notification Email</label>
+                                    <input type="email" class="form-control" id="notification_email" name="notification_email" value="{{ app_config.notification_email }}" placeholder="Admin email to notify on API upload">
+                                </div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save API Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Admin Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-user-shield"></i> Admin Account</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin.update_settings') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="admin_settings" value="1">
+                        
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="admin_username" class="form-label">Admin Username</label>
+                                    <input type="text" class="form-control" id="admin_username" 
+                                           name="admin_username" value="{{ current_user.username }}" autocomplete="username">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="admin_password" class="form-label">New Password</label>
+                                    <input type="password" class="form-control" id="admin_password" 
+                                           name="admin_password" placeholder="Leave empty to keep current" autocomplete="new-password">
+                                    <div class="form-text">
+                                        <small>Password requirements:</small>
+                                        <ul class="small text-muted mb-0">
+                                            <li>At least 12 characters</li>
+                                            <li>Include uppercase & lowercase letters</li>
+                                            <li>Include numbers & special characters</li>
+                                            <li>Avoid common passwords</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                                    <input type="password" class="form-control" id="confirm_password" 
+                                           name="confirm_password" placeholder="Confirm new password" autocomplete="new-password">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-key"></i> Update Admin Credentials
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Test Email Modal -->
+<div class="modal fade" id="testEmailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Test Email Configuration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="testEmailForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="test_email" class="form-label">Test Email Address</label>
+                        <input type="email" class="form-control" id="test_email" name="test_email" required>
+                        <div class="form-text">We'll send a test email to this address</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Send Test Email</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin-settings.js') }}"></script>
+{% endblock %}

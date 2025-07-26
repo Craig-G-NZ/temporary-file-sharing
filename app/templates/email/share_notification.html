@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Files Shared With You</title>
+    <style>
+        body { background: #f8f9fa; font-family: 'Segoe UI', Arial, sans-serif; color: #222; margin: 0; padding: 0; }
+        .container { background: #fff; max-width: 500px; margin: 40px auto; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 32px 24px; }
+        h2 { color: #007bff; margin-top: 0; }
+        .info-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+        .info-table td { padding: 8px 6px; }
+        .info-table .label { font-weight: bold; color: #555; }
+        .download-btn { display: inline-block; background: #007bff; color: #fff !important; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-size: 1.1em; margin: 18px 0; }
+        .footer { color: #888; font-size: 0.95em; margin-top: 32px; }
+        code { background: #f1f1f1; border-radius: 4px; padding: 2px 6px; font-size: 1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2><i>🔒</i> Secure Files Shared With You</h2>
+        <p>Hello,</p>
+        <p>You have received a secure file share via <strong>Secure File Share</strong>.</p>
+        <table class="info-table">
+            <tr><td class="label">Download Token:</td><td><code>{{ token }}</code></td></tr>
+            <tr><td class="label">Files:</td><td>{{ file_count }} file(s)</td></tr>
+            <tr><td class="label">Expires:</td><td>{{ expires_str }}</td></tr>
+        </table>
+        <p style="text-align:center;">
+            <a href="{{ download_url }}" class="download-btn">Download Files</a>
+        </p>
+        <div class="footer">
+            <p>This link will expire automatically for security.<br>
+            If you have any questions, please contact the sender.</p>
+        </div>
+    </div>
+</body>
+</html>

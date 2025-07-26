@@ -1,0 +1,9 @@
+*.db
+__pycache__
+data/
+logs/
+venv/
+uploads/
+.env
+.encryption_key
+docker-compose.yml

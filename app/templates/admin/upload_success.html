@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Successful - Secure File Share{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="fas fa-check-circle fa-4x text-success mb-4"></i>
+                <h3>Files Uploaded Successfully!</h3>
+                
+                <div class="alert alert-info text-start mt-4">
+                    <h5><i class="fas fa-info-circle"></i> Upload Details</h5>
+                    <p><strong>Recipient:</strong> {{ share.recipient_email }}</p>
+                    <p><strong>Files uploaded:</strong> {{ share.files|length }} file(s)</p>
+                    <p><strong>Download token:</strong> <code>{{ share.token }}</code></p>
+                    <p><strong>Total Size:</strong> {{ "%.2f"|format(total_size_gb) }} GB</p>
+                    {% if share.expires_at %}
+                        <p><strong>Expires:</strong> {{ share.expires_at.strftime('%Y-%m-%d %I:%M %p NZST') }}</p>
+                    {% endif %}
+                </div>
+                
+                {% if share.recipient_email != 'anonymous' %}
+                <div class="alert alert-success">
+                    <i class="fas fa-envelope"></i> 
+                    An email with the download link has been sent to <strong>{{ share.recipient_email }}</strong>
+                </div>
+                {% endif %}
+                
+                <div class="mt-4">
+                    <a href="{{ url_for('main.index') }}" class="btn btn-primary me-2">
+                        <i class="fas fa-home"></i> Back to Home
+                    </a>
+                    <a href="{{ url_for('admin.upload') }}" class="btn btn-success">
+                        <i class="fas fa-plus"></i> Upload More Files
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
