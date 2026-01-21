@@ -109,7 +109,7 @@ A secure, self-hosted web application for sharing files with others via unique d
 
 ### 🎛️ Admin Interface
 1. **Access the admin panel:** [http://localhost:5000/admin/login](http://localhost:5000/admin/login)
-2. **Default credentials:** `admin` / `changeme` (change immediately!)
+2. **Default credentials:** `admin` / `SecureTemp123!@#` (change immediately!)
 3. **Configure via web interface:**
    - Email settings (Mailjet API credentials)
    - File retention periods
