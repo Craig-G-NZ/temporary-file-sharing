@@ -283,11 +283,15 @@ def initialize_database():
         
         # Create default admin if none exists
         if not Admin.exists():
-            # Create a default admin with secure temporary credentials
-            default_password = "SecureTemp123!@#"
+            # Create a default admin using ADMIN_PASSWORD env var if provided, otherwise use a secure temporary password
+            default_password = os.environ.get('ADMIN_PASSWORD') or "SecureTemp123!@#"
             Admin.create_or_update('admin', default_password)
-            print("INFO: Default admin created (username: admin, password: SecureTemp123!@#)")
-            print("INFO: ⚠️  SECURITY WARNING: Please login immediately and change these credentials!")
+            if os.environ.get('ADMIN_PASSWORD'):
+                print("INFO: Default admin created (username: admin) - password sourced from ADMIN_PASSWORD environment variable.")
+                print("INFO: ⚠️  SECURITY WARNING: Ensure the ADMIN_PASSWORD is changed to a strong secret in production.")
+            else:
+                print("INFO: Default admin created (username: admin, password: SecureTemp123!@#)")
+                print("INFO: ⚠️  SECURITY WARNING: Please login immediately and change these credentials!")
             
             # Set flag that initial setup is needed
             Settings.set('needs_initial_setup', True, 'Indicates if initial setup is required')
