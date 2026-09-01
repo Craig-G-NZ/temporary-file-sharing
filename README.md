@@ -91,12 +91,16 @@ A secure, self-hosted web application for sharing files with others via unique d
 2. **Run the container:**
    ```bash
    docker run -d -p 5000:5000 \
+     -e SECRET_KEY="$(openssl rand -hex 32)" \
+     -e ADMIN_PASSWORD=your_secure_password \
      -e MAILJET_API_KEY=your_key \
      -e MAILJET_API_SECRET=your_secret \
      -v $(pwd)/uploads:/app/uploads \
      -v $(pwd)/app/data:/app/data \
      --name temp-file-share temp-file-share
    ```
+
+   `SECRET_KEY` is required in Docker/production. Reuse the same value on restarts so existing sessions stay valid.
 
 3. **Using Docker Compose (recommended):**
    ```bash

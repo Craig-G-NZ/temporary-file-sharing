@@ -18,13 +18,29 @@ def _resolve_config_name(config_name):
     return 'development'
 
 
-def _resolve_secret_key(config_name):
-    secret_key = os.environ.get('SECRET_KEY')
+def _read_or_create_secret_file(key_file):
+    if os.path.exists(key_file):
+        with open(key_file, encoding='utf-8') as handle:
+            stored = handle.read().strip()
+        if stored:
+            return stored
+    secret_key = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(key_file), exist_ok=True)
+    with open(key_file, 'w', encoding='utf-8') as handle:
+        handle.write(secret_key)
+    os.chmod(key_file, 0o600)
+    return secret_key
+
+
+def _resolve_secret_key(data_dir):
+    secret_key = (
+        os.environ.get('SECRET_KEY')
+        or os.environ.get('TEMPORARY_FILE_SHARING_SECRET_KEY')
+        or ''
+    ).strip()
     if secret_key:
         return secret_key
-    if config_name == 'production':
-        raise RuntimeError('SECRET_KEY environment variable must be set in production')
-    return secrets.token_hex(32)
+    return _read_or_create_secret_file(os.path.join(data_dir, '.secret_key'))
 
 
 def _resolve_directories(config_name):
@@ -40,7 +56,6 @@ def _resolve_directories(config_name):
 
 def _configure_app(app, config_name):
     app.config['DEBUG'] = config_name == 'development'
-    app.config['SECRET_KEY'] = _resolve_secret_key(config_name)
     app.config['WTF_CSRF_TIME_LIMIT'] = None
     app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024
 
@@ -51,6 +66,7 @@ def _configure_app(app, config_name):
     os.makedirs(uploads_dir, exist_ok=True)
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
+    app.config['SECRET_KEY'] = _resolve_secret_key(data_dir)
 
 
 def _add_rotating_handler(app, filename, level, backup_count):

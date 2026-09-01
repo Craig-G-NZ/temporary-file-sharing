@@ -6,6 +6,7 @@ venv/
 uploads/
 .env
 .encryption_key
+.secret_key
 docker-compose.yml
 .sonar
 .vscode
