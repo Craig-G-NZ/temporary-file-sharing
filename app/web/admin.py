@@ -4,11 +4,19 @@ from werkzeug.utils import secure_filename
 from app.models.admin import Admin
 from app.models.settings import Settings
 from app.models.file_share import FileShare
-from app.utils.helpers import format_file_size
+from app.utils.helpers import DEFAULT_TIMEZONE, safe_join_path, safe_next_url, utc_now
 import os
+import re
+import shutil
 import tempfile
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+_FILE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,200}$')
+_CHUNK_NAME_RE = re.compile(r'^chunk_\d{5}$')
+_MAX_CHUNKS = 4096
+ADMIN_FILES_ENDPOINT = 'admin.files'
+FILE_SHARE_NOT_FOUND = 'File share not found!'
 
 @admin_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -21,14 +29,14 @@ def login():
         if admin:
             login_user(admin, remember=True)
             flash('Welcome back!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('admin.dashboard'))
+            next_url = safe_next_url(request.args.get('next'), url_for('admin.dashboard'))
+            return redirect(next_url)
         else:
             flash('Invalid credentials!', 'error')
     
     return render_template('admin/login.html')
 
-@admin_bp.route('/logout')
+@admin_bp.route('/logout', methods=['GET'])
 @login_required
 def logout():
     """Admin logout"""
@@ -36,7 +44,7 @@ def logout():
     flash('You have been logged out.', 'info')
     return redirect(url_for('main.index'))
 
-@admin_bp.route('/dashboard')
+@admin_bp.route('/dashboard', methods=['GET'])
 @login_required
 def dashboard():
     """Admin dashboard"""
@@ -65,7 +73,7 @@ def dashboard():
                 file_path = os.path.join(root, file)
                 try:
                     total_storage_bytes += os.path.getsize(file_path)
-                except:
+                except OSError:
                     pass
     
     stats = {
@@ -82,20 +90,20 @@ def dashboard():
                          settings=all_settings,
                          needs_setup=needs_setup)
 
-@admin_bp.route('/upload')
+@admin_bp.route('/upload', methods=['GET'])
 @login_required
 def upload():
     """File upload page"""
     app_config = Settings.get_app_config()
     return render_template('admin/upload.html', config=app_config)
 
-@admin_bp.route('/upload/success/<token>')
+@admin_bp.route('/upload/success/<token>', methods=['GET'])
 def upload_success(token):
     """Show upload success page"""
     share = FileShare.get(token)
     
     if not share:
-        flash('File share not found!', 'error')
+        flash(FILE_SHARE_NOT_FOUND, 'error')
         return redirect(url_for('admin.upload'))
         
     total_size_gb = share.get_total_size_gb()
@@ -103,12 +111,12 @@ def upload_success(token):
                          share=share, 
                          total_size_gb=total_size_gb)
 
-@admin_bp.route('/api/upload-progress')
+@admin_bp.route('/api/upload-progress', methods=['GET'])
 def upload_progress():
     """API endpoint for upload progress (placeholder for future implementation)"""
     return jsonify({'progress': 0, 'message': 'Upload progress tracking not yet implemented'})
 
-@admin_bp.route('/settings')
+@admin_bp.route('/settings', methods=['GET'])
 @login_required
 def settings():
     """Settings management page"""
@@ -126,88 +134,98 @@ def settings():
                          app_config=app_config,
                          timezone_config=timezone_config)
 
+def _update_email_settings(form):
+    Settings.set_encrypted('mailjet_api_key', form.get('mailjet_api_key', '').strip(),
+                           'Mailjet API Key')
+    Settings.set_encrypted('mailjet_api_secret', form.get('mailjet_api_secret', '').strip(),
+                           'Mailjet API Secret')
+    Settings.set('mailjet_from_email', form.get('mailjet_from_email', '').strip(),
+                 'From Email Address')
+    Settings.set('mailjet_from_name', form.get('mailjet_from_name', 'Secure File Share').strip(),
+                 'From Name')
+    flash('Email settings updated successfully!', 'success')
+
+
+def _update_app_settings(form):
+    Settings.set('file_retention_hours', int(form.get('file_retention_hours', 24)),
+                 'File retention period in hours')
+    Settings.set('max_file_size_gb', int(form.get('max_file_size_gb', 1)),
+                 'Maximum file size in GB')
+    Settings.set('max_total_upload_gb', int(form.get('max_total_upload_gb', 5)),
+                 'Maximum total upload size in GB')
+    Settings.set('max_files_per_upload', int(form.get('max_files_per_upload', 10)),
+                 'Maximum files per upload')
+    Settings.set('require_email', form.get('require_email') == 'on',
+                 'Require email for file sharing')
+    Settings.set('auto_cleanup', form.get('auto_cleanup') == 'on',
+                 'Automatic cleanup of expired files')
+    Settings.set('cleanup_interval_minutes', int(form.get('cleanup_interval_minutes', 60)),
+                 'Cleanup interval in minutes')
+    flash('Application settings updated successfully!', 'success')
+
+
+def _update_api_settings(form):
+    if form.get('regenerate_api_key'):
+        Settings.generate_api_key()
+        flash('API key regenerated!', 'success')
+    Settings.set_notification_email(form.get('notification_email', '').strip())
+    flash('API settings updated successfully!', 'success')
+
+
+def _update_timezone_settings(form):
+    timezone = form.get('display_timezone', DEFAULT_TIMEZONE).strip()
+    if Settings.set_display_timezone(timezone):
+        flash('Timezone settings updated successfully!', 'success')
+    else:
+        flash('Invalid timezone selected!', 'error')
+
+
+def _update_admin_credentials(form):
+    new_username = form.get('admin_username', '').strip()
+    new_password = form.get('admin_password', '').strip()
+    confirm_password = form.get('confirm_password', '').strip()
+
+    if new_password and new_password != confirm_password:
+        flash('Passwords do not match!', 'error')
+        return
+    if not new_username:
+        return
+    try:
+        if not new_password:
+            Settings.set('admin_username', new_username, 'Admin username')
+            flash('Admin username updated successfully!', 'success')
+            return
+        from app.utils.security import security_manager
+        is_secure, issues = security_manager.is_password_secure(new_password)
+        if not is_secure:
+            flash(f'Password security issues: {", ".join(issues)}', 'error')
+            return
+        Admin.create_or_update(new_username, new_password)
+        flash('Admin credentials updated successfully!', 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    except Exception as e:
+        flash(f'Error updating admin credentials: {e}', 'error')
+
+
+_SETTINGS_HANDLERS = (
+    ('email_settings', _update_email_settings),
+    ('app_settings', _update_app_settings),
+    ('api_settings', _update_api_settings),
+    ('timezone_settings', _update_timezone_settings),
+    ('admin_settings', _update_admin_credentials),
+)
+
+
 @admin_bp.route('/settings', methods=['POST'])
 @login_required
 def update_settings():
     """Update application settings"""
     try:
-        # Email settings
-        if 'email_settings' in request.form:
-            Settings.set_encrypted('mailjet_api_key', request.form.get('mailjet_api_key', '').strip(),
-                        'Mailjet API Key')
-            Settings.set_encrypted('mailjet_api_secret', request.form.get('mailjet_api_secret', '').strip(),
-                        'Mailjet API Secret')
-            Settings.set('mailjet_from_email', request.form.get('mailjet_from_email', '').strip(),
-                        'From Email Address')
-            Settings.set('mailjet_from_name', request.form.get('mailjet_from_name', 'Secure File Share').strip(),
-                        'From Name')
-            flash('Email settings updated successfully!', 'success')
-        
-        # App settings
-        elif 'app_settings' in request.form:
-            Settings.set('file_retention_hours', int(request.form.get('file_retention_hours', 24)),
-                        'File retention period in hours')
-            Settings.set('max_file_size_gb', int(request.form.get('max_file_size_gb', 1)),
-                        'Maximum file size in GB')
-            Settings.set('max_total_upload_gb', int(request.form.get('max_total_upload_gb', 5)),
-                        'Maximum total upload size in GB')
-            Settings.set('max_files_per_upload', int(request.form.get('max_files_per_upload', 10)),
-                        'Maximum files per upload')
-            Settings.set('require_email', request.form.get('require_email') == 'on',
-                        'Require email for file sharing')
-            Settings.set('auto_cleanup', request.form.get('auto_cleanup') == 'on',
-                        'Automatic cleanup of expired files')
-            Settings.set('cleanup_interval_minutes', int(request.form.get('cleanup_interval_minutes', 60)),
-                        'Cleanup interval in minutes')
-            flash('Application settings updated successfully!', 'success')
-        
-        # API settings
-        elif 'api_settings' in request.form:
-            # Regenerate API key if requested
-            if request.form.get('regenerate_api_key'):
-                new_key = Settings.generate_api_key()
-                flash('API key regenerated!', 'success')
-            # Update notification email
-            notif_email = request.form.get('notification_email', '').strip()
-            Settings.set_notification_email(notif_email)
-            flash('API settings updated successfully!', 'success')
-        
-        # Timezone settings
-        elif 'timezone_settings' in request.form:
-            timezone = request.form.get('display_timezone', 'Pacific/Auckland').strip()
-            if Settings.set_display_timezone(timezone):
-                flash('Timezone settings updated successfully!', 'success')
-            else:
-                flash('Invalid timezone selected!', 'error')
-                
-        # Admin settings
-        elif 'admin_settings' in request.form:
-            new_username = request.form.get('admin_username', '').strip()
-            new_password = request.form.get('admin_password', '').strip()
-            confirm_password = request.form.get('confirm_password', '').strip()
-            
-            if new_password and new_password != confirm_password:
-                flash('Passwords do not match!', 'error')
-            elif new_username:
-                try:
-                    if new_password:
-                        # Validate password security
-                        from app.utils.security import security_manager
-                        is_secure, issues = security_manager.is_password_secure(new_password)
-                        if not is_secure:
-                            flash(f'Password security issues: {", ".join(issues)}', 'error')
-                        else:
-                            Admin.create_or_update(new_username, new_password)
-                            flash('Admin credentials updated successfully!', 'success')
-                    else:
-                        # Just update username (not recommended, but supported)
-                        Settings.set('admin_username', new_username, 'Admin username')
-                        flash('Admin username updated successfully!', 'success')
-                except ValueError as e:
-                    flash(str(e), 'error')
-                except Exception as e:
-                    flash(f'Error updating admin credentials: {e}', 'error')
-        
+        for field, handler in _SETTINGS_HANDLERS:
+            if field in request.form:
+                handler(request.form)
+                break
     except ValueError as e:
         flash(f'Invalid input: {e}', 'error')
     except Exception as e:
@@ -250,7 +268,7 @@ def manual_cleanup():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@admin_bp.route('/files')
+@admin_bp.route('/files', methods=['GET'])
 @login_required
 def files():
     """File management page"""
@@ -268,7 +286,7 @@ def delete_file(token):
     else:
         flash('Error deleting file share!', 'error')
     
-    return redirect(url_for('admin.files'))
+    return redirect(url_for(ADMIN_FILES_ENDPOINT))
     
 @admin_bp.route('/files/<token>/notify', methods=['POST'])
 @login_required
@@ -276,8 +294,8 @@ def notify_share(token):
     """Set recipient (if provided) and send notification email for a share"""
     share = FileShare.get(token)
     if not share:
-        flash('File share not found!', 'error')
-        return redirect(url_for('admin.files'))
+        flash(FILE_SHARE_NOT_FOUND, 'error')
+        return redirect(url_for(ADMIN_FILES_ENDPOINT))
     # If a recipient email was provided, set it and update expiration
     recipient = request.form.get('recipient_email', '').strip()
     if recipient:
@@ -290,10 +308,10 @@ def notify_share(token):
             flash('Notification email sent successfully!', 'success')
         else:
             flash('Failed to send notification email.', 'error')
-    except Exception as e:
-        current_app.logger.error(f"Notification email error: {e}")
+    except Exception:
+        current_app.logger.exception("Notification email error")
         flash('Error sending notification email.', 'error')
-    return redirect(url_for('admin.files'))
+    return redirect(url_for(ADMIN_FILES_ENDPOINT))
 
 @admin_bp.route('/reactivate/<token>', methods=['POST'])
 @login_required
@@ -302,90 +320,125 @@ def reactivate_share(token):
     share = FileShare.get(token)
 
     if not share:
-        flash('File share not found!', 'error')
-        return redirect(url_for('admin.files'))
+        flash(FILE_SHARE_NOT_FOUND, 'error')
+        return redirect(url_for(ADMIN_FILES_ENDPOINT))
 
     if not share.is_expired():
         flash('File share is already active!', 'info')
-        return redirect(url_for('admin.files'))
+        return redirect(url_for(ADMIN_FILES_ENDPOINT))
 
     # Get retention hours from settings
     from app.models.settings import Settings
     retention_hours = Settings.get('file_retention_hours', 24)
     
     # Reactivate the share with new expiry date
-    from datetime import datetime, timedelta
-    share.expires_at = datetime.utcnow() + timedelta(hours=retention_hours)
+    from datetime import timedelta
+    share.expires_at = utc_now() + timedelta(hours=retention_hours)
     share.save()
 
     flash('File share reactivated successfully!', 'success')
-    return redirect(url_for('admin.files'))
+    return redirect(url_for(ADMIN_FILES_ENDPOINT))
+
+def _chunk_error(message, status):
+    return jsonify({'success': False, 'error': message}), status
+
+
+def _parse_chunk_request():
+    chunk_number = int(request.form['chunkNumber'])
+    total_chunks = int(request.form['totalChunks'])
+    file_id = request.form['fileId']
+    filename = secure_filename(request.form.get('filename', ''))
+    share_token = request.form.get('share_token')
+
+    if not _FILE_ID_RE.fullmatch(file_id or ''):
+        return None, _chunk_error('Invalid file id', 400)
+    if not filename:
+        return None, _chunk_error('Invalid filename', 400)
+    if total_chunks < 1 or total_chunks > _MAX_CHUNKS:
+        return None, _chunk_error('Invalid chunk count', 400)
+    if chunk_number < 1 or chunk_number > total_chunks:
+        return None, _chunk_error('Invalid chunk number', 400)
+
+    share = FileShare.get(share_token)
+    if not share:
+        return None, _chunk_error('Invalid share token', 400)
+
+    return {
+        'chunk_number': chunk_number,
+        'total_chunks': total_chunks,
+        'file_id': file_id,
+        'filename': filename,
+        'share': share,
+    }, None
+
+
+def _assemble_uploaded_file(temp_dir, total_chunks, filename, share):
+    chunk_files = sorted(
+        name for name in os.listdir(temp_dir) if _CHUNK_NAME_RE.fullmatch(name)
+    )
+    if len(chunk_files) != total_chunks:
+        return _chunk_error('Missing chunks', 400)
+
+    assembled_path = safe_join_path(temp_dir, 'assembled_file')
+    with open(assembled_path, 'wb') as outfile:
+        for name in chunk_files:
+            with open(safe_join_path(temp_dir, name), 'rb') as infile:
+                outfile.write(infile.read())
+
+    uploads_dir = os.path.realpath(current_app.config.get('UPLOAD_FOLDER', 'uploads'))
+    upload_dir = safe_join_path(uploads_dir, share.token)
+    os.makedirs(upload_dir, exist_ok=True)
+    shutil.move(assembled_path, safe_join_path(upload_dir, filename))
+
+    if not share.files:
+        share.files = []
+    if filename not in share.files:
+        share.files.append(filename)
+    share.save()
+
+    for name in chunk_files:
+        try:
+            os.remove(safe_join_path(temp_dir, name))
+        except OSError:
+            pass
+    try:
+        os.rmdir(temp_dir)
+    except OSError:
+        pass
+    return None
+
 
 @admin_bp.route('/upload-chunk', methods=['POST'])
 @login_required
 def upload_chunk():
     """Handle chunked file upload via AJAX"""
     try:
-        chunk_number = int(request.form['chunkNumber'])
-        total_chunks = int(request.form['totalChunks'])
-        file_id = request.form['fileId']
-        filename = secure_filename(request.form['filename'])
-        share_token = request.form.get('share_token')
-        # Get the share by token
-        share = FileShare.get(share_token)
-        if not share:
-            return jsonify({'success': False, 'error': 'Invalid share token'}), 400
+        parsed, error = _parse_chunk_request()
+        if error:
+            return error
 
-        # Chunk data
-        chunk = request.files['chunk']
-
-        # Temp dir for chunks
-        temp_dir = os.path.join(tempfile.gettempdir(), 'chunked_uploads', file_id)
+        chunks_root = os.path.realpath(os.path.join(tempfile.gettempdir(), 'chunked_uploads'))
+        os.makedirs(chunks_root, exist_ok=True)
+        temp_dir = safe_join_path(chunks_root, parsed['file_id'])
         os.makedirs(temp_dir, exist_ok=True)
-        chunk_path = os.path.join(temp_dir, f"chunk_{chunk_number:05d}")
-        chunk.save(chunk_path)
 
-        # If last chunk, assemble file
-        if chunk_number == total_chunks:
-            # Assemble chunks
-            assembled_path = os.path.join(temp_dir, filename)
-            with open(assembled_path, 'wb') as outfile:
-                for i in range(1, total_chunks + 1):
-                    part_path = os.path.join(temp_dir, f"chunk_{i:05d}")
-                    with open(part_path, 'rb') as infile:
-                        outfile.write(infile.read())
+        chunk_name = f"chunk_{parsed['chunk_number']:05d}"
+        request.files['chunk'].save(safe_join_path(temp_dir, chunk_name))
 
-            # Save to uploads dir under the existing share
-            uploads_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
-            upload_dir = os.path.join(uploads_dir, share.token)
-            os.makedirs(upload_dir, exist_ok=True)
-            final_path = os.path.join(upload_dir, filename)
-            import shutil
-            shutil.move(assembled_path, final_path)
-            
-            # Add file to share.files (append if not already present)
-            if not share.files:
-                share.files = []
-            if filename not in share.files:
-                share.files.append(filename)
-            share.save()
-
-            # Cleanup temp chunks
-            for i in range(1, total_chunks + 1):
-                try:
-                    os.remove(os.path.join(temp_dir, f"chunk_{i:05d}"))
-                except Exception:
-                    pass
-            try:
-                os.rmdir(temp_dir)
-            except Exception:
-                pass
-
-            return jsonify({'success': True, 'done': True, 'token': share.token}), 200
-        else:
+        if parsed['chunk_number'] != parsed['total_chunks']:
             return jsonify({'success': True, 'done': False}), 200
+
+        assemble_error = _assemble_uploaded_file(
+            temp_dir, parsed['total_chunks'], parsed['filename'], parsed['share']
+        )
+        if assemble_error:
+            return assemble_error
+        return jsonify({'success': True, 'done': True, 'token': parsed['share'].token}), 200
+    except ValueError:
+        current_app.logger.exception("Chunk upload path error")
+        return jsonify({'success': False, 'error': 'Invalid upload path'}), 400
     except Exception as e:
-        current_app.logger.error(f"Chunk upload error: {e}")
+        current_app.logger.exception("Chunk upload error")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @admin_bp.route('/request-share-token', methods=['POST'])
@@ -416,5 +469,5 @@ def finalize_share():
             send_share_notification(share)
         return jsonify({'success': True}), 200
     except Exception as e:
-        current_app.logger.error(f"Email error (finalize): {e}")
+        current_app.logger.exception("Email error (finalize)")
         return jsonify({'success': False, 'error': str(e)}), 500

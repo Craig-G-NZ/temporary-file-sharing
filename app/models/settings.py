@@ -246,7 +246,7 @@ class Settings:
         try:
             pytz.timezone(timezone)
             return Settings.set('display_timezone', timezone, 'Display timezone for dates and times')
-        except:
+        except pytz.UnknownTimeZoneError:
             return False
 
     @staticmethod

@@ -1,7 +1,69 @@
 import os
 import pytz
-from datetime import datetime
-from typing import Union
+from datetime import datetime, timezone
+from typing import Optional, Union
+from urllib.parse import urlparse
+from werkzeug.security import safe_join
+
+DEFAULT_TIMEZONE = 'Pacific/Auckland'
+
+# Login redirects may only go to these exact relative paths (constants, not user input).
+_ALLOWED_NEXT_PATHS = (
+    '/admin',
+    '/admin/',
+    '/admin/dashboard',
+    '/admin/upload',
+    '/admin/files',
+    '/admin/settings',
+)
+
+
+def utc_now() -> datetime:
+    """Return the current UTC time as an aware datetime."""
+    return datetime.now(timezone.utc)
+
+
+def as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Treat naive datetimes as UTC and return an aware UTC datetime."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def safe_join_path(base_dir: str, *parts: str) -> str:
+    """Join path parts and reject any result that would escape base_dir."""
+    if not parts:
+        raise ValueError('Missing path components')
+    for part in parts:
+        if not part or part in ('.', '..') or '/' in str(part) or '\\' in str(part):
+            raise ValueError('Invalid path component')
+    base = os.path.realpath(base_dir)
+    joined = safe_join(base, *parts)
+    if joined is None:
+        raise ValueError('Invalid path component')
+    full = os.path.realpath(joined)
+    if full != base and not full.startswith(base + os.sep):
+        raise ValueError('Path escapes base directory')
+    return full
+
+
+def safe_next_url(candidate: Optional[str], default_url: str) -> str:
+    """Return a whitelisted relative path, otherwise default_url.
+
+    The returned value is always a constant from the allow-list or default_url,
+    never the original user-supplied string.
+    """
+    if not candidate or not isinstance(candidate, str):
+        return default_url
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return default_url
+    for allowed in _ALLOWED_NEXT_PATHS:
+        if parsed.path == allowed:
+            return allowed
+    return default_url
 
 def format_file_size(bytes_size: Union[int, float]) -> str:
     """Format file size in human readable format"""
@@ -50,7 +112,7 @@ def is_file_size_valid(file_path: str, max_gb: float) -> bool:
         max_bytes = gb_to_bytes(max_gb)
         
         return file_size <= max_bytes
-    except:
+    except OSError:
         return False
 
 def get_directory_size_gb(directory_path: str) -> float:
@@ -65,7 +127,7 @@ def get_directory_size_gb(directory_path: str) -> float:
             filepath = os.path.join(dirpath, filename)
             try:
                 total_size += os.path.getsize(filepath)
-            except:
+            except OSError:
                 pass
     
     return bytes_to_gb(total_size)
@@ -76,7 +138,7 @@ def get_directory_size_gb(directory_path: str) -> float:
 def get_available_timezones():
     """Get a list of common timezones for the dropdown"""
     return {
-        'Pacific/Auckland': 'New Zealand (Auckland)',
+        DEFAULT_TIMEZONE: 'New Zealand (Auckland)',
         'Pacific/Chatham': 'New Zealand (Chatham Islands)',
         'Australia/Sydney': 'Australia (Sydney)',
         'Australia/Melbourne': 'Australia (Melbourne)',
@@ -102,13 +164,12 @@ def get_available_timezones():
 def get_user_timezone():
     """Get the user's configured timezone from settings"""
     from app.models.settings import Settings
-    timezone_str = Settings.get('display_timezone', 'Pacific/Auckland')
+    timezone_str = Settings.get('display_timezone', DEFAULT_TIMEZONE)
     
     try:
         return pytz.timezone(timezone_str)
-    except:
-        # Fallback to Auckland if invalid timezone
-        return pytz.timezone('Pacific/Auckland')
+    except pytz.UnknownTimeZoneError:
+        return pytz.timezone(DEFAULT_TIMEZONE)
 
 def convert_utc_to_user_timezone(utc_datetime):
     """Convert UTC datetime to user's configured timezone"""

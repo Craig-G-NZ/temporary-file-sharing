@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app, url_for
+from flask_wtf.csrf import generate_csrf
 from werkzeug.utils import secure_filename
 import os
-from datetime import datetime
 
 from app.models.settings import Settings
 from app.models.file_share import FileShare
@@ -9,14 +9,24 @@ from app.utils.email import get_mailjet_client
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
-@api_bp.route('/upload', methods=['POST'])
-def upload_api():
-    """Handle external API file uploads"""
-    # Authenticate API key
+
+@api_bp.before_request
+def require_api_key():
+    """Authenticate all /api requests with X-API-Key."""
     api_key = request.headers.get('X-API-Key', '')
     if not api_key or api_key != Settings.get_api_key():
         return jsonify({'success': False, 'error': 'Invalid API key'}), 401
 
+
+@api_bp.route('/csrf', methods=['GET'])
+def api_csrf():
+    """Return a CSRF token for subsequent mutating API requests."""
+    return jsonify({'csrf_token': generate_csrf()}), 200
+
+
+@api_bp.route('/upload', methods=['POST'])
+def upload_api():
+    """Handle external API file uploads"""
     files = request.files.getlist('files')
     if not files or not any(f.filename for f in files):
         return jsonify({'success': False, 'error': 'No files uploaded'}), 400
@@ -71,8 +81,8 @@ def upload_api():
             }
             try:
                 client.send.create(data=data)
-            except Exception as e:
-                current_app.logger.error(f"API notification email failed: {e}")
+            except Exception:
+                current_app.logger.exception("API notification email failed")
 
     # Return share token
     return jsonify({'success': True, 'token': share.token}), 200

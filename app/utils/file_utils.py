@@ -1,5 +1,4 @@
 import os
-import shutil
 from werkzeug.utils import secure_filename
 from typing import List
 from flask import current_app
@@ -38,15 +37,3 @@ def get_file_size(file_path: str) -> int:
     except OSError:
         return 0
 
-# def format_file_size(size_bytes: int) -> str:
-#     """Format file size in human readable format"""
-#     if size_bytes == 0:
-#         return "0 B"
-    
-#     size_names = ["B", "KB", "MB", "GB", "TB"]
-#     i = 0
-#     while size_bytes >= 1024 and i < len(size_names) - 1:
-#         size_bytes /= 1024.0
-#         i += 1
-    
-#     return f"{size_bytes:.1f} {size_names[i]}"

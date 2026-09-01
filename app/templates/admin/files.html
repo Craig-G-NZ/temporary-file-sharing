@@ -43,7 +43,8 @@
                                             <form method="post" action="{{ url_for('admin.notify_share', token=share.token) }}" class="mt-1">
                                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <div class="input-group input-group-sm">
-                                                    <input type="email" name="recipient_email" class="form-control" placeholder="Recipient Email" required>
+                                                    <label for="recipient-email-{{ share.token }}" class="visually-hidden">Recipient Email</label>
+                                                    <input type="email" id="recipient-email-{{ share.token }}" name="recipient_email" class="form-control" placeholder="Recipient Email" required>
                                                     <button class="btn btn-warning btn-sm" type="submit" title="Send Notification">
                                                         <i class="fas fa-paper-plane"></i>
                                                     </button>

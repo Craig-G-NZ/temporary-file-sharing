@@ -15,7 +15,7 @@ function confirmDeleteShare(isExpired) {
 document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('submit', function(e) {
         if (e.target.classList.contains('delete-share-form')) {
-            const isExpired = e.target.getAttribute('data-is-expired') === 'true';
+            const isExpired = e.target.dataset.isExpired === 'true';
             if (!confirmDeleteShare(isExpired)) {
                 e.preventDefault();
             }

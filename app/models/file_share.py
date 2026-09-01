@@ -3,6 +3,9 @@ import json
 import secrets
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from werkzeug.utils import secure_filename
+
+from app.utils.helpers import as_utc, safe_join_path, utc_now
 
 class FileShare:
     def __init__(self, token: str, recipient_email: str, files: List[str], 
@@ -23,7 +26,7 @@ class FileShare:
         try:
             from flask import current_app
             return current_app.config.get('UPLOAD_FOLDER', 'uploads')
-        except:
+        except RuntimeError:
             return 'uploads'
     
     @staticmethod
@@ -86,7 +89,7 @@ class FileShare:
         from app.utils.database import get_db_connection
         
         token = FileShare.generate_token()
-        created_at = datetime.utcnow()
+        created_at = utc_now()
         expires_at = created_at + timedelta(hours=retention_hours)
         
         # Save to database
@@ -101,8 +104,8 @@ class FileShare:
         cursor = conn.execute('SELECT created_at, expires_at FROM file_shares WHERE token = ?', (token,))
         row = cursor.fetchone()
         if row:
-            created_at = datetime.fromisoformat(row[0].replace('Z', '+00:00'))
-            expires_at = datetime.fromisoformat(row[1].replace('Z', '+00:00'))
+            created_at = FileShare._parse_dt(row[0])
+            expires_at = FileShare._parse_dt(row[1])
             
         conn.close()
         
@@ -110,6 +113,11 @@ class FileShare:
         share = FileShare(token, recipient_email, files, created_at, expires_at)
         return share
     
+    @staticmethod
+    def _parse_dt(value: str) -> datetime:
+        """Parse a stored timestamp as timezone-aware UTC."""
+        return as_utc(datetime.fromisoformat(value.replace('Z', '+00:00')))
+
     def save(self):
         """Save file share metadata to database"""
         from app.utils.database import get_db_connection
@@ -140,8 +148,8 @@ class FileShare:
             if row:
                 token, recipient_email, files_json, created_at_str, expires_at_str, downloaded, download_count, downloaded_files_json = row
                 
-                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                created_at = FileShare._parse_dt(created_at_str)
+                expires_at = FileShare._parse_dt(expires_at_str)
                 files = json.loads(files_json)
                 downloaded_files = json.loads(downloaded_files_json) if downloaded_files_json else []
                 
@@ -168,8 +176,8 @@ class FileShare:
             ''')
             for row in cursor.fetchall():
                 token, recipient_email, files_json, created_at_str, expires_at_str, downloaded, download_count, downloaded_files_json = row
-                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                created_at = FileShare._parse_dt(created_at_str)
+                expires_at = FileShare._parse_dt(expires_at_str)
                 files = json.loads(files_json)
                 downloaded_files = json.loads(downloaded_files_json) if downloaded_files_json else []
                 shares.append(FileShare(token, recipient_email, files, created_at, expires_at, bool(downloaded), download_count, downloaded_files))
@@ -194,8 +202,8 @@ class FileShare:
             shares = []
             for row in cursor.fetchall():
                 token, recipient_email, files_json, created_at_str, expires_at_str, downloaded, download_count, downloaded_files_json = row
-                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                created_at = FileShare._parse_dt(created_at_str)
+                expires_at = FileShare._parse_dt(expires_at_str)
                 files = json.loads(files_json)
                 downloaded_files = json.loads(downloaded_files_json) if downloaded_files_json else []
                 shares.append(FileShare(token, recipient_email, files, created_at, expires_at, bool(downloaded), download_count, downloaded_files))
@@ -231,7 +239,7 @@ class FileShare:
             count = cursor.fetchone()[0]
             conn.close()
             return count
-        except:
+        except Exception:
             return 0
     
     @staticmethod
@@ -248,7 +256,7 @@ class FileShare:
             count = cursor.fetchone()[0]
             conn.close()
             return count
-        except:
+        except Exception:
             return 0
     
     @staticmethod
@@ -270,8 +278,8 @@ class FileShare:
             for row in cursor.fetchall():
                 token, recipient_email, files_json, created_at_str, expires_at_str, downloaded, download_count = row
                 
-                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                created_at = FileShare._parse_dt(created_at_str)
+                expires_at = FileShare._parse_dt(expires_at_str)
                 files = json.loads(files_json)
                 
                 expired_shares.append(FileShare(token, recipient_email, files, created_at, expires_at, bool(downloaded), download_count))
@@ -292,7 +300,7 @@ class FileShare:
         try:
             # Delete physical files
             uploads_dir = FileShare.get_uploads_dir()
-            share_dir = os.path.join(uploads_dir, token)
+            share_dir = safe_join_path(uploads_dir, token)
             if os.path.exists(share_dir):
                 shutil.rmtree(share_dir)
             
@@ -316,7 +324,7 @@ class FileShare:
         # If expires_at missing, treat as not expired
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return utc_now() > as_utc(self.expires_at)
     
     def mark_downloaded(self):
         """Mark as downloaded and increment count"""
@@ -331,7 +339,7 @@ class FileShare:
                 UPDATE file_shares 
                 SET downloaded = ?, download_count = ?, last_download_completed = ?, downloaded_files = ?
                 WHERE token = ?
-            ''', (self.downloaded, self.download_count, datetime.utcnow(), json.dumps(self.downloaded_files), self.token))
+            ''', (self.downloaded, self.download_count, utc_now(), json.dumps(self.downloaded_files), self.token))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -353,7 +361,7 @@ class FileShare:
                 UPDATE file_shares 
                 SET last_download_attempt = ?
                 WHERE token = ?
-            ''', (datetime.utcnow(), self.token))
+            ''', (utc_now(), self.token))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -362,7 +370,10 @@ class FileShare:
     def get_file_path(self, filename: str) -> str:
         """Get full path to a file in this share"""
         uploads_dir = self.get_uploads_dir()
-        return os.path.join(uploads_dir, self.token, filename)
+        try:
+            return safe_join_path(uploads_dir, self.token, secure_filename(filename))
+        except ValueError:
+            return os.path.join(os.path.realpath(uploads_dir), '_invalid', 'missing')
     
     def set_recipient(self, recipient_email: str, retention_hours: int) -> None:
         """
@@ -371,7 +382,7 @@ class FileShare:
         from app.utils.database import get_db_connection
         # Set in-memory
         self.recipient_email = recipient_email
-        self.expires_at = datetime.utcnow() + timedelta(hours=retention_hours)
+        self.expires_at = utc_now() + timedelta(hours=retention_hours)
         # Persist to DB
         conn = get_db_connection()
         conn.execute(
@@ -385,15 +396,21 @@ class FileShare:
         """Get total size of all files in bytes"""
         total_size = 0
         uploads_dir = self.get_uploads_dir()
-        share_dir = os.path.join(uploads_dir, self.token)
+        try:
+            share_dir = safe_join_path(uploads_dir, self.token)
+        except ValueError:
+            return 0
         
         if os.path.exists(share_dir):
             for filename in self.files:
-                file_path = os.path.join(share_dir, filename)
+                try:
+                    file_path = safe_join_path(share_dir, secure_filename(filename))
+                except ValueError:
+                    continue
                 if os.path.exists(file_path):
                     try:
                         total_size += os.path.getsize(file_path)
-                    except:
+                    except OSError:
                         pass
         
         return total_size
@@ -434,7 +451,7 @@ class FileShare:
             for token in expired_tokens:
                 try:
                     # Delete physical files
-                    share_dir = os.path.join(uploads_dir, token)
+                    share_dir = safe_join_path(uploads_dir, token)
                     if os.path.exists(share_dir):
                         shutil.rmtree(share_dir)
                     

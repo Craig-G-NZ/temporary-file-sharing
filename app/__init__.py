@@ -1,242 +1,233 @@
-from flask import Flask, app, render_template, request, redirect, url_for, flash, g
+from flask import Flask, render_template, request, flash, g
 import pytz
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from flask_wtf.csrf import CSRFProtect
 from logging.handlers import RotatingFileHandler
 import os
 import logging
+import secrets
 
-# def create_app(config_name='development'):
-def create_app(config_name=None):
-    # Auto-select config: production if running in Docker, else development
-    if config_name is None:
-        if os.path.exists('/.dockerenv') or os.path.exists('/app/.dockerenv'):
-            config_name = 'production'
-        else:
-            config_name = 'development'
-    
-    app = Flask(__name__)
-    
-    # Configuration
-    if config_name == 'development':
-        app.config['DEBUG'] = True
-        app.config['SECRET_KEY'] = 'dev-secret-key-change-in-production'
-    else:
-        app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'lkejr2io43j509tguw09a4u5oiq34ntog8ye7tq34ithgoisyo8g7qo4oighq3i4houdgo7o97')
-    
-    # Configure CSRF token timeout (disable expiration)
-    app.config['WTF_CSRF_TIME_LIMIT'] = None
-    # Large file upload support (10GB max)
-    app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB max upload
-    
+from app.utils.helpers import DEFAULT_TIMEZONE
+
+
+def _resolve_config_name(config_name):
+    if config_name is not None:
+        return config_name
+    if os.path.exists('/.dockerenv') or os.path.exists('/app/.dockerenv'):
+        return 'production'
+    return 'development'
+
+
+def _resolve_secret_key(config_name):
+    secret_key = os.environ.get('SECRET_KEY')
+    if secret_key:
+        return secret_key
     if config_name == 'production':
-        # Force absolute paths for directories
-        uploads_dir = '/app/uploads'
-        data_dir = '/app/data'
-        logs_dir = '/app/logs'
-    else:
-        # Force absolut path for directories
-        uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'uploads'))
-        data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'data'))
-        logs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'logs'))
+        raise RuntimeError('SECRET_KEY environment variable must be set in production')
+    return secrets.token_hex(32)
 
+
+def _resolve_directories(config_name):
+    if config_name == 'production':
+        return '/app/uploads', '/app/data', '/app/logs'
+    base = os.path.abspath(os.path.dirname(__file__))
+    return (
+        os.path.join(base, 'uploads'),
+        os.path.join(base, 'data'),
+        os.path.join(base, 'logs'),
+    )
+
+
+def _configure_app(app, config_name):
+    app.config['DEBUG'] = config_name == 'development'
+    app.config['SECRET_KEY'] = _resolve_secret_key(config_name)
+    app.config['WTF_CSRF_TIME_LIMIT'] = None
+    app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024
+
+    uploads_dir, data_dir, logs_dir = _resolve_directories(config_name)
     app.config['UPLOAD_FOLDER'] = uploads_dir
     app.config['DATA_FOLDER'] = data_dir
     app.config['LOG_FOLDER'] = logs_dir
-
-    # Initialize CSRF protection
-    csrf = CSRFProtect(app)
-    
-    # Ensure upload directory exists
     os.makedirs(uploads_dir, exist_ok=True)
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
-    
-    # Set up timezone handling
-    @app.before_request
-    def before_request():
-        g.pytz = pytz
-        g.nz_tz = pytz.timezone('Pacific/Auckland')
 
-    # Configure detailed logging
-    if not app.debug:
-        # File handler for download logs
-        download_handler = RotatingFileHandler(
-            os.path.join(app.config['LOG_FOLDER'], 'downloads.log'), 
-            maxBytes=10240000,  # 10MB
-            backupCount=5
-        )
-        download_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        download_handler.setLevel(logging.INFO)
-        app.logger.addHandler(download_handler)
-        
-        # File handler for application logs
-        app_handler = RotatingFileHandler(
-            os.path.join(app.config['LOG_FOLDER'], 'app.log'), 
-            maxBytes=10240000,  # 10MB
-            backupCount=3
-        )
-        app_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        app_handler.setLevel(logging.WARNING)
-        app.logger.addHandler(app_handler)
-        
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Secure File Share application startup')
-    
-    # Initialize database on first run
-    initialize_database()
-    
-    # Run security migrations
-    run_security_migrations()
-    
-    # Setup Flask-Login
+
+def _add_rotating_handler(app, filename, level, backup_count):
+    handler = RotatingFileHandler(
+        os.path.join(app.config['LOG_FOLDER'], filename),
+        maxBytes=10240000,
+        backupCount=backup_count,
+    )
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    handler.setLevel(level)
+    app.logger.addHandler(handler)
+
+
+def _configure_logging(app):
+    if app.debug:
+        return
+    _add_rotating_handler(app, 'downloads.log', logging.INFO, 5)
+    _add_rotating_handler(app, 'app.log', logging.WARNING, 3)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('Secure File Share application startup')
+
+
+def _setup_login(app):
     login_manager = LoginManager()
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
     login_manager.login_message_category = 'info'
-    
+
     @login_manager.user_loader
     def load_user(user_id):
         from app.models.admin import Admin
         return Admin.get(user_id)
-    
-    # Configuration check middleware
+
+
+def _setup_request_hooks(app):
+    @app.before_request
+    def before_request():
+        g.pytz = pytz
+        g.nz_tz = pytz.timezone(DEFAULT_TIMEZONE)
+
     @app.before_request
     def check_configuration():
         from app.models.settings import Settings
-        from flask_login import current_user
-        
-        # Skip check for static files and auth routes
-        if (request.endpoint and 
-            (request.endpoint.startswith('static') or 
-             request.endpoint.startswith('auth.') or
-             request.endpoint == 'main.index')):
+
+        endpoint = request.endpoint
+        if not endpoint or endpoint.startswith(('static', 'auth.')) or endpoint == 'main.index':
             return
-        
-        # Check if app is configured and user is trying to access admin area
-        if (request.endpoint and request.endpoint.startswith('admin.') and 
-            current_user.is_authenticated):
-            
-            # Store configuration status in g for templates
+        if endpoint.startswith('admin.') and current_user.is_authenticated:
             g.is_fully_configured = Settings.is_configured()
-            g.admin_exists = True  # We know user is logged in
-    
-    # Add template filters for file handling
-    @app.template_filter('file_exists')
-    def file_exists_filter(file_path):
-        """Check if file exists"""
-        try:
-            return os.path.exists(file_path) if file_path else False
-        except:
-            return False
-    
-    @app.template_filter('file_size')
-    def file_size_filter(file_path):
-        """Get file size in bytes"""
-        try:
-            return os.path.getsize(file_path) if file_path and os.path.exists(file_path) else 0
-        except:
-            return 0
-    
-    @app.template_filter('format_file_size')
-    def format_file_size_filter(bytes_size):
-        """Format file size in human readable format"""
-        from app.utils.helpers import format_file_size
-        return format_file_size(bytes_size)
-    
-    @app.template_filter('format_datetime')
-    def format_datetime_filter(dt):
-        """Format datetime for display in user's timezone"""
-        if dt is None:
-            return 'Never'
-        try:
-            from datetime import datetime
-            from app.utils.helpers import format_datetime_user_timezone
-            
-            if isinstance(dt, str):
-                dt = datetime.fromisoformat(dt)
-            
-            return format_datetime_user_timezone(dt)
-        except:
-            return str(dt)
-    
-    @app.template_filter('time_ago')
-    def time_ago_filter(dt):
-        """Show time ago format"""
-        if dt is None:
-            return 'Never'
-        try:
-            from datetime import datetime
-            if isinstance(dt, str):
-                dt = datetime.fromisoformat(dt)
-            
-            now = datetime.utcnow()
-            diff = now - dt
-            
-            if diff.days > 0:
-                return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
-            elif diff.seconds > 3600:
-                hours = diff.seconds // 3600
-                return f"{hours} hour{'s' if hours > 1 else ''} ago"
-            elif diff.seconds > 60:
-                minutes = diff.seconds // 60
-                return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
-            else:
-                return "Just now"
-        except:
-            return str(dt)
-    
-    # Register blueprints
+            g.admin_exists = True
+
+
+def _file_exists_filter(file_path):
+    try:
+        return os.path.exists(file_path) if file_path else False
+    except OSError:
+        return False
+
+
+def _file_size_filter(file_path):
+    try:
+        return os.path.getsize(file_path) if file_path and os.path.exists(file_path) else 0
+    except OSError:
+        return 0
+
+
+def _format_file_size_filter(bytes_size):
+    from app.utils.helpers import format_file_size
+    return format_file_size(bytes_size)
+
+
+def _format_datetime_filter(dt):
+    if dt is None:
+        return 'Never'
+    try:
+        from datetime import datetime
+        from app.utils.helpers import format_datetime_user_timezone
+
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt)
+        return format_datetime_user_timezone(dt)
+    except (TypeError, ValueError, OSError, AttributeError):
+        return str(dt)
+
+
+def _time_ago_filter(dt):
+    if dt is None:
+        return 'Never'
+    try:
+        from datetime import datetime
+        from app.utils.helpers import as_utc, utc_now
+
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt)
+
+        diff = utc_now() - as_utc(dt)
+        if diff.days > 0:
+            return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
+        if diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"{hours} hour{'s' if hours > 1 else ''} ago"
+        if diff.seconds > 60:
+            minutes = diff.seconds // 60
+            return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+        return "Just now"
+    except (TypeError, ValueError, OSError, AttributeError):
+        return str(dt)
+
+
+def _register_template_filters(app):
+    app.add_template_filter(_file_exists_filter, 'file_exists')
+    app.add_template_filter(_file_size_filter, 'file_size')
+    app.add_template_filter(_format_file_size_filter, 'format_file_size')
+    app.add_template_filter(_format_datetime_filter, 'format_datetime')
+    app.add_template_filter(_time_ago_filter, 'time_ago')
+
+
+def _register_blueprints(app):
     from app.web.main import main_bp
     from app.web.auth import auth_bp
     from app.web.admin import admin_bp
     from app.web.api import api_bp
-    
+
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
 
-    # Exempt API routes from CSRF
-    csrf.exempt(api_bp)
-    csrf.exempt(app.view_functions['admin.upload_chunk'])
-    csrf.exempt(app.view_functions['admin.request_share_token'])
-    csrf.exempt(app.view_functions['admin.finalize_share'])
 
-    # Error handlers
+def _register_error_handlers(app):
     @app.errorhandler(404)
     def not_found_error(error):
         return render_template('errors/404.html'), 404
-    
+
     @app.errorhandler(413)
     def request_entity_too_large(error):
         flash('File too large! Please check the maximum upload size in settings.', 'error')
         return render_template('errors/413.html'), 413
-    
+
     @app.errorhandler(500)
     def internal_error(error):
-        app.logger.error(f'Server Error: {error}')
+        app.logger.error('Server Error: %s', error)
         return render_template('errors/500.html'), 500
-    
+
     @app.errorhandler(Exception)
     def handle_exception(error):
-        app.logger.error(f'Unhandled Exception: {error}', exc_info=True)
+        app.logger.exception('Unhandled Exception: %s', error)
         return render_template('errors/500.html'), 500
-    
-    # Initialize cleanup scheduler
+
+
+def _start_cleanup_scheduler(app):
     from app.utils.cleanup import cleanup_scheduler
     cleanup_scheduler.init_app(app)
-    
-    # Start scheduler after app setup (Flask 2.2+ compatible)
     with app.app_context():
         cleanup_scheduler.start()
-    
+
+
+def create_app(config_name=None):
+    config_name = _resolve_config_name(config_name)
+    app = Flask(__name__)
+    app.config['WTF_CSRF_ENABLED'] = True
+    CSRFProtect(app)
+    _configure_app(app, config_name)
+    _configure_logging(app)
+    initialize_database()
+    run_security_migrations()
+    _setup_login(app)
+    _setup_request_hooks(app)
+    _register_template_filters(app)
+    _register_blueprints(app)
+    _register_error_handlers(app)
+    _start_cleanup_scheduler(app)
     return app
+
 
 def run_security_migrations():
     """Run security-related database migrations"""
@@ -260,6 +251,7 @@ def run_security_migrations():
         print(f"ERROR: Security migration failed: {e}")
         import traceback
         traceback.print_exc()
+
 
 def initialize_database():
     """Initialize database tables and default settings on first run"""

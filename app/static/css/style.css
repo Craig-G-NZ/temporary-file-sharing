@@ -81,17 +81,38 @@ footer {
     margin-top: 0.5rem;
 }
 
+.navbar .nav-link.dropdown-toggle {
+    background: transparent;
+    border: 0;
+}
+
 /* Upload page styles */
 #uploadProgress {
     display: none;
 }
 
-.upload-progress-bar {
+progress.upload-progress-bar {
+    display: block;
+    width: 100%;
     height: 25px;
 }
 
-.upload-progress-bar .progress-bar {
-    width: 0%;
+progress.upload-progress-bar::-webkit-progress-bar {
+    background-color: #e9ecef;
+    border-radius: 0.25rem;
+}
+
+progress.upload-progress-bar::-webkit-progress-value {
+    background-color: #0d6efd;
+    border-radius: 0.25rem;
+}
+
+progress.upload-progress-bar.bg-success::-webkit-progress-value {
+    background-color: #198754;
+}
+
+progress.upload-progress-bar.bg-danger::-webkit-progress-value {
+    background-color: #dc3545;
 }
 
 .upload-progress-text {

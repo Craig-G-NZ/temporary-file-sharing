@@ -51,8 +51,8 @@ class CleanupScheduler:
                     interval_minutes = Settings.get('cleanup_interval_minutes', 60)
                     time.sleep(interval_minutes * 60)  # Convert to seconds
                     
-                except Exception as e:
-                    current_app.logger.error(f"Cleanup scheduler error: {e}")
+                except Exception:
+                    current_app.logger.exception("Cleanup scheduler error")
                     time.sleep(300)  # Wait 5 minutes before retrying on error
 
 def cleanup_expired_files() -> int:
@@ -76,16 +76,16 @@ def cleanup_expired_files() -> int:
                 shutil.rmtree(token_path)
                 cleaned_count += 1
                 current_app.logger.info(f"Cleaned up expired share: {token_dir}")
-            except Exception as e:
-                current_app.logger.error(f"Failed to clean up {token_dir}: {e}")
+            except Exception:
+                current_app.logger.exception("Failed to clean up expired share")
         elif not file_share:
             # Clean up orphaned directories without metadata
             try:
                 shutil.rmtree(token_path)
                 cleaned_count += 1
                 current_app.logger.info(f"Cleaned up orphaned directory: {token_dir}")
-            except Exception as e:
-                current_app.logger.error(f"Failed to clean up orphaned {token_dir}: {e}")
+            except Exception:
+                current_app.logger.exception("Failed to clean up orphaned directory")
     
     return cleaned_count
 
@@ -107,11 +107,11 @@ def cleanup_orphaned_directories(uploads_dir: str) -> int:
                     shutil.rmtree(item_path)
                     cleaned_count += 1
                     current_app.logger.info(f"Cleaned up orphaned directory: {item}")
-                except Exception as e:
-                    current_app.logger.error(f"Failed to clean up orphaned directory {item}: {e}")
+                except Exception:
+                    current_app.logger.exception("Failed to clean up orphaned directory")
                     
-    except Exception as e:
-        current_app.logger.error(f"Orphaned directory cleanup failed: {e}")
+    except Exception:
+        current_app.logger.exception("Orphaned directory cleanup failed")
     
     return cleaned_count
 

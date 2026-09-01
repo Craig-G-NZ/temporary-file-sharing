@@ -1,10 +1,6 @@
 import os
-from datetime import timedelta
 
 class Config:
-    # SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
-    # MAX_CONTENT_LENGTH = None  # No file size limit as requested
-
     # Mailjet configuration
     MAILJET_API_KEY = os.environ.get('MAILJET_API_KEY')
     MAILJET_API_SECRET = os.environ.get('MAILJET_API_SECRET')

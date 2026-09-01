@@ -8,7 +8,6 @@ config_name = os.getenv('FLASK_ENV', 'production')
 
 # Create the Flask app instance using the factory function from app/__init__.py
 app = create_app(config_name)
-# app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB
 app.config['MAX_CONTENT_LENGTH'] = None  # No file size limit as requested
 
 if __name__ == '__main__':

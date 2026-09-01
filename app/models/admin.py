@@ -64,7 +64,7 @@ class Admin(UserMixin):
     def verify_password(self, password: str) -> bool:
         """Verify password against stored hash with support for legacy SHA256 migration"""
         # Check if this is a new bcrypt hash
-        if self.password_hash.startswith('$2b$') or self.password_hash.startswith('$2a$') or self.password_hash.startswith('$2y$'):
+        if self.password_hash.startswith(('$2b$', '$2a$', '$2y$')):
             return security_manager.verify_password(password, self.password_hash)
         
         # Legacy SHA256 hash - verify and upgrade if correct

@@ -2,10 +2,42 @@
  * JavaScript for admin upload page
  */
 
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function getFileId(file) {
+    return (
+        file.name + '-' + file.size + '-' + file.lastModified
+    ).replace(/[^a-zA-Z0-9]/g, '');
+}
+
+function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
+async function getShareToken(recipientEmail, retentionHours) {
+    const resp = await fetch('/admin/request-share-token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify({ recipient_email: recipientEmail, retention_hours: retentionHours })
+    });
+    const data = await resp.json();
+    return data.token;
+}
+
 // Run after DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
     const progressContainer = document.getElementById('uploadProgress');
-    const progressBar = progressContainer.querySelector('.progress-bar');
+    const progressBar = progressContainer.querySelector('progress');
     const progressText = document.getElementById('progressText');
     const uploadStatus = document.getElementById('uploadStatus');
     const uploadBtn = document.getElementById('uploadBtn');
@@ -13,14 +45,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('uploadForm');
     const filesInput = document.getElementById('files');
     const fileList = document.getElementById('fileList');
-
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
 
     // Show selected files
     filesInput.addEventListener('change', function() {
@@ -41,15 +65,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Helper to request a new share token from the backend
-    async function getShareToken(recipientEmail, retentionHours) {
-        const resp = await fetch('/admin/request-share-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient_email: recipientEmail, retention_hours: retentionHours })
-        });
-        const data = await resp.json();
-        return data.token;
+    function setProgress(percent) {
+        progressBar.value = percent;
+        progressText.textContent = percent + '%';
     }
 
     // Handle form submission (chunked upload, all files in one share)
@@ -67,22 +85,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         progressContainer.classList.remove('d-none');
         progressContainer.style.display = 'block';
-        progressContainer.offsetHeight;
+        progressContainer.getBoundingClientRect();
         uploadBtn.disabled = true;
         if (backBtn) backBtn.classList.add('d-none');
-        progressBar.style.width = '0%';
         progressBar.classList.remove('bg-success', 'bg-danger');
-        progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
-        progressText.textContent = '0%';
+        setProgress(0);
         uploadStatus.textContent = 'Preparing upload...';
         uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-
-        // Helper to generate a simple fileId (hash)
-        function getFileId(file) {
-            return (
-                file.name + '-' + file.size + '-' + file.lastModified
-            ).replace(/[^a-zA-Z0-9]/g, '');
-        }
 
         // Upload a single file in chunks
         function uploadFileChunked(file, fileIndex, totalFiles, onComplete) {
@@ -100,16 +109,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 formData.append('totalChunks', totalChunks);
                 formData.append('fileId', fileId);
                 formData.append('filename', file.name);
-                formData.append('share_token', shareToken); // <--- Pass the share token
+                formData.append('share_token', shareToken);
 
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/admin/upload-chunk');
+                xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
                 xhr.onload = function() {
                     if (xhr.status === 200) {
-                        // Update progress
                         const percent = Math.round(((fileIndex + (chunkNumber / totalChunks)) / totalFiles) * 100);
-                        progressBar.style.width = percent + '%';
-                        progressText.textContent = percent + '%';
+                        setProgress(percent);
                         uploadStatus.textContent = `Uploading ${file.name} (${chunkNumber}/${totalChunks})`;
 
                         if (chunkNumber < totalChunks) {
@@ -144,17 +152,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     uploadNextFile();
                 });
             } else {
-                // All files uploaded, now finalize the share (send email)
                 fetch('/admin/finalize-share', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
                     body: JSON.stringify({ share_token: shareToken })
                 })
                 .then(response => response.json())
                 .then(data => {
-                    progressBar.style.width = '100%';
-                    progressText.textContent = '100%';
-                    progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                    setProgress(100);
                     progressBar.classList.add('bg-success');
                     if (data.success) {
                         uploadStatus.textContent = 'Upload complete! Email sent. Redirecting...';

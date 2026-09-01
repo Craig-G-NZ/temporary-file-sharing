@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user, login_required
 from app.models.admin import Admin
+from app.utils.helpers import safe_next_url
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -20,15 +21,14 @@ def login():
             login_user(admin)
             flash('Login successful!', 'success')
             
-            # Redirect to admin dashboard
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('admin.dashboard'))
+            next_url = safe_next_url(request.args.get('next'), url_for('admin.dashboard'))
+            return redirect(next_url)
         else:
             flash('Invalid username or password.', 'error')
     
     return render_template('auth/login.html')
 
-@auth_bp.route('/logout')
+@auth_bp.route('/logout', methods=['GET'])
 @login_required
 def logout():
     logout_user()

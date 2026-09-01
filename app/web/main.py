@@ -12,7 +12,7 @@ from datetime import datetime
 
 main_bp = Blueprint('main', __name__)
 
-@main_bp.route('/')
+@main_bp.route('/', methods=['GET'])
 def index():
     """Home page"""
     app_config = Settings.get_app_config()
@@ -22,7 +22,7 @@ def index():
                          config=app_config, 
                          is_configured=is_configured)
 
-@main_bp.route('/download/<token>')
+@main_bp.route('/download/<token>', methods=['GET'])
 def download_page(token):
     """Download page for a file share"""
     share = FileShare.get(token)
@@ -65,7 +65,7 @@ def download_page(token):
                          nz_tz=nz_tz,
                          hasattr=hasattr)
 
-@main_bp.route('/download/<token>/file/<filename>')
+@main_bp.route('/download/<token>/file/<filename>', methods=['GET'])
 def download_file(token, filename):
     """Download individual file"""
     share = FileShare.get(token)
@@ -89,13 +89,13 @@ def download_file(token, filename):
     share.mark_file_downloaded(filename)
     share.mark_downloaded()
     
-    # Log download
+    # Log download without user-controlled path or token values
     file_size = os.path.getsize(file_path)
-    current_app.logger.info(f"📥 Download: {filename} ({format_file_size(file_size)}) - Token: {token}")
+    current_app.logger.info("File download completed (%s)", format_file_size(file_size))
     
     return send_file(file_path, as_attachment=True, download_name=filename)
 
-@main_bp.route('/download/<token>/zip')
+@main_bp.route('/download/<token>/zip', methods=['GET'])
 def download_zip(token):
     """Download all files as ZIP"""
     share = FileShare.get(token)
@@ -122,19 +122,23 @@ def download_zip(token):
         # Mark as downloaded
         share.mark_downloaded()
         
-        # Log download
-        current_app.logger.info(f"📦 ZIP Download: {len(share.files)} files ({format_file_size(total_size)}) - Token: {token}")
+        # Log download without user-controlled token values
+        current_app.logger.info(
+            "ZIP download completed: %s files (%s)",
+            len(share.files),
+            format_file_size(total_size),
+        )
         
         zip_filename = f"files_{token[:8]}.zip"
         return send_file(temp_zip.name, as_attachment=True, download_name=zip_filename)
         
-    except Exception as e:
-        current_app.logger.error(f"ZIP creation error: {e}")
+    except Exception:
+        current_app.logger.exception("ZIP creation error")
         abort(500)
     finally:
         # Clean up temp file after sending
         try:
             os.unlink(temp_zip.name)
-        except:
+        except OSError:
             pass
 

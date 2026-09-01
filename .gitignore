@@ -7,3 +7,5 @@ uploads/
 .env
 .encryption_key
 docker-compose.yml
+.sonar
+.vscode

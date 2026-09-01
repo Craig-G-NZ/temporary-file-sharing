@@ -51,13 +51,14 @@ function updateCurrentTime() {
                 timeZoneName: 'short'
             };
             const timeString = now.toLocaleString('en-NZ', options);
-            currentTimeDisplay.textContent = timeString;
+            currentTimeDisplay.value = timeString;
             // Add some styling
             currentTimeDisplay.style.fontWeight = 'bold';
             currentTimeDisplay.style.color = '#28a745';
         } catch (error) {
-            currentTimeDisplay.textContent = 'Invalid timezone';
+            currentTimeDisplay.value = 'Invalid timezone';
             currentTimeDisplay.style.color = '#dc3545';
+            console.warn('Could not format the selected timezone:', error);
         }
     }
 }
