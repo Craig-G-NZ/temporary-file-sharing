@@ -1,4 +1,3 @@
-import hashlib
 from typing import Optional
 from flask_login import UserMixin
 from app.utils.database import get_db_connection
@@ -22,15 +21,6 @@ class Admin(UserMixin):
         password_hash = security_manager.hash_password(password)
         
         conn = get_db_connection()
-        
-        # Check if this is an update of an existing user with old SHA256 hash
-        cursor = conn.execute('SELECT password_hash FROM admin_users WHERE username = ?', (username,))
-        existing_row = cursor.fetchone()
-        
-        if existing_row and len(existing_row['password_hash']) == 64:
-            # This is an old SHA256 hash, log the upgrade
-            print(f"INFO: Upgrading admin user '{username}' from SHA256 to bcrypt")
-        
         conn.execute('''
             INSERT OR REPLACE INTO admin_users (username, password_hash, updated_at)
             VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -62,41 +52,15 @@ class Admin(UserMixin):
         return count > 0
     
     def verify_password(self, password: str) -> bool:
-        """Verify password against stored hash with support for legacy SHA256 migration"""
-        # Check if this is a new bcrypt hash
+        """Verify password against stored bcrypt hash"""
         if self.password_hash.startswith(('$2b$', '$2a$', '$2y$')):
             return security_manager.verify_password(password, self.password_hash)
-        
-        # Legacy SHA256 hash - verify and upgrade if correct
-        elif len(self.password_hash) == 64:  # SHA256 hex length
-            legacy_hash = hashlib.sha256(password.encode()).hexdigest()
-            if self.password_hash == legacy_hash:
-                # Password is correct, upgrade to bcrypt
-                print(f"INFO: Migrating admin user '{self.username}' from SHA256 to bcrypt")
-                try:
-                    new_hash = security_manager.hash_password(password)
-                    conn = get_db_connection()
-                    conn.execute('''
-                        UPDATE admin_users 
-                        SET password_hash = ?, updated_at = CURRENT_TIMESTAMP 
-                        WHERE username = ?
-                    ''', (new_hash, self.username))
-                    conn.commit()
-                    conn.close()
-                    
-                    # Update current instance
-                    self.password_hash = new_hash
-                    print(f"INFO: Successfully upgraded admin user '{self.username}' to bcrypt")
-                    return True
-                except Exception as e:
-                    print(f"ERROR: Failed to upgrade admin user '{self.username}': {e}")
-                    return True  # Still allow login even if upgrade fails
-            return False
-        
-        # Unknown hash format
-        else:
-            print(f"WARNING: Unknown password hash format for admin user '{self.username}'")
-            return False
+
+        print(
+            f"WARNING: Admin user '{self.username}' has a non-bcrypt password hash; "
+            "reset the password via Admin.create_or_update or ADMIN_PASSWORD"
+        )
+        return False
     
     def get_id(self):
         """Required by Flask-Login"""

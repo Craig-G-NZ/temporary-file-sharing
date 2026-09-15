@@ -55,10 +55,19 @@ document.addEventListener('DOMContentLoaded', function() {
             Array.from(this.files).forEach(file => {
                 const li = document.createElement('li');
                 li.className = 'list-group-item d-flex justify-content-between align-items-center';
-                li.innerHTML = `
-                    <span><i class="fas fa-file"></i> ${file.name}</span>
-                    <span class="badge bg-primary rounded-pill">${formatFileSize(file.size)}</span>
-                `;
+
+                const nameSpan = document.createElement('span');
+                const icon = document.createElement('i');
+                icon.className = 'fas fa-file';
+                nameSpan.appendChild(icon);
+                nameSpan.appendChild(document.createTextNode(' ' + file.name));
+
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'badge bg-primary rounded-pill';
+                sizeSpan.textContent = formatFileSize(file.size);
+
+                li.appendChild(nameSpan);
+                li.appendChild(sizeSpan);
                 ul.appendChild(li);
             });
             fileList.appendChild(ul);

@@ -250,8 +250,9 @@ def test_email():
         else:
             return jsonify({'success': False, 'error': 'Failed to send test email'})
     
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception:
+        current_app.logger.exception("Test email error")
+        return jsonify({'success': False, 'error': 'Operation failed'}), 500
 
 @admin_bp.route('/cleanup', methods=['POST'])
 @login_required
@@ -265,8 +266,9 @@ def manual_cleanup():
             'success': True, 
             'message': f'Cleanup completed: {cleaned_count} expired shares removed'
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception:
+        current_app.logger.exception("Manual cleanup error")
+        return jsonify({'success': False, 'error': 'Operation failed'}), 500
 
 @admin_bp.route('/files', methods=['GET'])
 @login_required
@@ -437,9 +439,9 @@ def upload_chunk():
     except ValueError:
         current_app.logger.exception("Chunk upload path error")
         return jsonify({'success': False, 'error': 'Invalid upload path'}), 400
-    except Exception as e:
+    except Exception:
         current_app.logger.exception("Chunk upload error")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Operation failed'}), 500
 
 @admin_bp.route('/request-share-token', methods=['POST'])
 @login_required
@@ -468,6 +470,6 @@ def finalize_share():
             from app.utils.email import send_share_notification
             send_share_notification(share)
         return jsonify({'success': True}), 200
-    except Exception as e:
+    except Exception:
         current_app.logger.exception("Email error (finalize)")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Operation failed'}), 500
